@@ -67,4 +67,11 @@ Direct Activity Launching: Uses native Android intents to wake the game up direc
 ⚠️ Disclaimer
 Use at your own risk. This exploit manipulates core game mechanics. While the script includes the Time Fix to prevent timer soft-locks, excessive use may result in leaderboard bans or account flags by Exient/Rovio. Always backup your game progress before using automation tools. Educational purposes only.
 
+## ❤️ Support
+If this tool saved you time and gems, feel free to support the project!
+### 🪙 Donate via Crypto
+* **TON:** `UQB4L-ZzhteBgkQEWqejBkDm4ZKjG0leGJwgfXMy5gfknzQR`
+* **USDT (TRC-20):** `TEL1XmhnoE6eeudsPEZf3F82bPZMKrrrSd`
+* **GitHub Star:** Leave a ⭐ if you find this project useful!
+
 Developed by ArturPen
