@@ -9,7 +9,7 @@ A fully automated Python script for the **Ultimate Time-Skip Glitch** in Angry B
 
 ---
 
-## ⚠️ Disclaimer.
+## ⚠️ Disclaimer
 Use at your own risk. This exploit manipulates core game mechanics. While the script includes the Time Fix to prevent timer soft-locks, excessive use may result in leaderboard bans or account flags by Exient/Rovio. Always backup your game progress before using automation tools. Educational purposes only.
 
 ## ❤️ Support
@@ -65,18 +65,22 @@ To change the system date, Android **requires Root access**. The script will not
 git clone https://github.com/ArturPen/ab-transformers-time-skip.git
 cd ab-transformers-time-skip
 
-Step 2: Configure Coordinates (If necessary)
+### Step 2: Configure Coordinates (If necessary)
 The script is optimized for a 1920x1080 emulator resolution. The "Claim" button coordinates are set to X=720, Y=890 inside main.py. If you use a different resolution, you will need to adjust BTN_X and BTN_Y. Or you can change your resolution in Bluestacks settings.
 
-Step 3: Check ADB Connection
+### Step 3: Check ADB Connection
 Set your ADB adress from Bluestacks advanced settings in driver.py __init__.
 
-Step 4: Launch script
+### Step 4: Launch script
 You have to launch main.py with driver.py and 3 adb files in the same folder.
 
-📝 Features & Logging
-Real-time Logging: The script automatically generates a farm_log.txt file and attempts to open it on your PC so you can monitor the farming cycles, calculated loops, and ADB execution status in real-time.
-Auto-Recovery: Disables Android's auto_time global setting upon connection so the emulator doesn't fight the script during date manipulation.
-Direct Activity Launching: Uses native Android intents to wake the game up directly bypassing suspended tabs issues.
+## 📝 Features & Logging
 
-Developed by ArturPen
+### Real-time Logging: 
+The script automatically generates a farm_log.txt file and attempts to open it on your PC so you can monitor the farming cycles, calculated loops, and ADB execution status in real-time.
+### Auto-Recovery: 
+Disables Android's auto_time global setting upon connection so the emulator doesn't fight the script during date manipulation.
+### Direct Activity Launching: 
+Uses native Android intents to wake the game up directly bypassing suspended tabs issues.
+
+### Developed by ArturPen
