@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta
 
 class GameDriver:
-    def __init__(self, adb_address="127.0.0.1:5575"): #Check your adb adress in Bluestacks advanced settings
+    def __init__(self, adb_address="127.0.0.1:5575"): # Check your adb address in Bluestacks advanced settings
         self.adb_address = adb_address
         self.package_name = "com.rovio.angrybirdstransformers"
         # The specific activity name required to bypass the suspended tab issue
@@ -55,11 +55,12 @@ class GameDriver:
         self.run_cmd(f"shell input tap {x} {y}")
         logging.info(f"[ACTION] Tapped coordinates: X={x}, Y={y}")
 
-    def skip_2_days(self):
-        """Jumps forward exactly 2 days from the emulator's current time to reset the reward calendar."""
+    def skip_days(self, days_to_skip):
+        """Jumps forward a specified number of days from the emulator's current time."""
         current_time = self.get_device_time()
-        new_time = current_time + timedelta(days=2)
+        new_time = current_time + timedelta(days=days_to_skip)
         self.set_device_time(new_time)
+        logging.info(f"[ACTION] Skipped forward {days_to_skip} day(s).")
 
     def apply_fix(self):
         """Reverts the time to yesterday at 23:59 based on real-world time to trigger the calendar fix."""
@@ -76,13 +77,8 @@ class GameDriver:
     def start_game(self):
         """Launches the game using its specific Activity path, killing any hung instances."""
         logging.info(f"[ACTION] Attempting to launch {self.package_name}...")
-
-        # Tap 'Home' to wake up/reset the BlueStacks launcher environment
         self.run_cmd("shell input keyevent 3")
         time.sleep(1)
-
-        # -S: Force stops the target app before starting the activity
-        # -W: Wait for launch to complete
         cmd = f"shell am start -S -W -n {self.package_name}/{self.activity_name}"
         output = self.run_cmd(cmd)
         
@@ -90,6 +86,4 @@ class GameDriver:
             logging.info("[SUCCESS] Game launched successfully.")
         else:
             logging.warning("Something went wrong with the launch command. Please check the emulator screen.")
-        
-        # Buffer time to allow Unity logos and loading screens to pass
         time.sleep(7)
