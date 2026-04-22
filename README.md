@@ -9,21 +9,36 @@ A fully automated Python script for the **Ultimate Time-Skip Glitch** in Angry B
 
 ---
 
+## ⚠️ Disclaimer.
+Use at your own risk. This exploit manipulates core game mechanics. While the script includes the Time Fix to prevent timer soft-locks, excessive use may result in leaderboard bans or account flags by Exient/Rovio. Always backup your game progress before using automation tools. Educational purposes only.
+
+## ❤️ Support
+If this tool saved you time and gems, feel free to support the project!
+### 🪙 Donate via Crypto
+* **TON:** `UQB4L-ZzhteBgkQEWqejBkDm4ZKjG0leGJwgfXMy5gfknzQR`
+* **USDT (TRC-20):** `TEL1XmhnoE6eeudsPEZf3F82bPZMKrrrSd`
+* **GitHub Star:** Leave a ⭐ if you find this project useful!
 ## ⚙️ How It Works (Code Analysis)
 
-The script relies on `adb shell` and `su` commands to bypass Android's time synchronization. It is fully self-contained and operates in a precise sequence:
+The script relies on `adb shell` and `su` commands to bypass Android's time synchronization.
 
-* **Target Calculation:** You input the exact amount of gems you want to farm. The script automatically calculates the required number of loops (5 gems per claim).
-* **The Farming Loop:**
-  * Skips exactly **2 days forward** to break the login streak and trigger the daily reward.
-  * Waits 5 seconds for the game to process the date change.
-  * Emulates a screen tap on the "Claim" button.
-  * Repeats until the target is reached.
-* **The "Time Fix" (No 14-day skip required):**
+When you run the script, you will be prompted to select one of two methods:
+
+### Mode 1: Gems Farm (+2 Days Jump)
+* **Goal:** Maximize Gems output.
+* **How it works:** The script skips 2 days into the future on every cycle. This breaks your login streak, forcing the game to give you the "Day 1" reward (which is always 5 Gems). 
+* **Input:** You enter the **Total amount of gems** you want. The script calculates the required loops.
+
+### Mode 2: Resources Farm (+1 Day Jump)
+* **Goal:** Collect sequential weekly rewards (Pigs, Coins, and Day-7 Crystals).
+* **How it works:** The script skips exactly 1 day into the future. This maintains your daily login streak, allowing you to collect the full 7-day calendar rewards sequentially.
+* **Input:** You enter the **Number of days (claims)** you want the script to process. **Important note**: 14 days at least required for the time fix to work ([check reddit guide](https://www.reddit.com/r/angrybirdstransform/comments/1ssj9wo/ultimate_guide_time_skip_glitch_in_angry_birds/)).
+ 
+* **The "Time Fix":**
   * Once farming is done, the script force-stops the game completely.
   * It calculates real-world time and sets the emulator's clock to **23:59 of the *previous* day**.
   * It launches the game and waits. 
-  * **Your only job** is to watch the map screen until the clock hits exactly `00:00`. The game registers a natural day rollover, fixing the "2000 days until next mission" bug permanently.
+  * **Your only job** is to watch the map screen until the clock hits exactly `00:00`. The game registers a natural day rollover, fixing calendar permanently.
 
 ---
 
@@ -63,15 +78,5 @@ You have to launch main.py with driver.py and 3 adb files in the same folder.
 Real-time Logging: The script automatically generates a farm_log.txt file and attempts to open it on your PC so you can monitor the farming cycles, calculated loops, and ADB execution status in real-time.
 Auto-Recovery: Disables Android's auto_time global setting upon connection so the emulator doesn't fight the script during date manipulation.
 Direct Activity Launching: Uses native Android intents to wake the game up directly bypassing suspended tabs issues.
-
-⚠️ Disclaimer
-Use at your own risk. This exploit manipulates core game mechanics. While the script includes the Time Fix to prevent timer soft-locks, excessive use may result in leaderboard bans or account flags by Exient/Rovio. Always backup your game progress before using automation tools. Educational purposes only.
-
-## ❤️ Support
-If this tool saved you time and gems, feel free to support the project!
-### 🪙 Donate via Crypto
-* **TON:** `UQB4L-ZzhteBgkQEWqejBkDm4ZKjG0leGJwgfXMy5gfknzQR`
-* **USDT (TRC-20):** `TEL1XmhnoE6eeudsPEZf3F82bPZMKrrrSd`
-* **GitHub Star:** Leave a ⭐ if you find this project useful!
 
 Developed by ArturPen
