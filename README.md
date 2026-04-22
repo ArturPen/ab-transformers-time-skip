@@ -34,7 +34,7 @@ When you run the script, you will be prompted to select one of two methods:
 * **How it works:** The script skips exactly 1 day into the future. This maintains your daily login streak, allowing you to collect the full 7-day calendar rewards sequentially.
 * **Input:** You enter the **Number of days (claims)** you want the script to process. **Important note**: 14 days at least required for the time fix to work ([check reddit guide](https://www.reddit.com/r/angrybirdstransform/comments/1ssj9wo/ultimate_guide_time_skip_glitch_in_angry_birds/)).
  
-* **The "Time Fix":**
+### The "Time Fix":
   * Once farming is done, the script force-stops the game completely.
   * It calculates real-world time and sets the emulator's clock to **23:59 of the *previous* day**.
   * It launches the game and waits. 
