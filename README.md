@@ -62,7 +62,7 @@ To change the system date, Android **requires Root access**. The script will not
 ## 🚀 Installation & Usage
 
 ### Step 1: Clone the repository
-git clone https://github.com/ArturPen/ab-transformers-time-skip.git
+Git clone https://github.com/ArturPen/ab-transformers-time-skip.git
 cd ab-transformers-time-skip
 
 ### Step 2: Configure Coordinates (If necessary)
