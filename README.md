@@ -17,7 +17,8 @@ If this tool saved you time and gems, feel free to support the project!
 ### 🪙 Donate via Crypto
 * **TON:** `UQB4L-ZzhteBgkQEWqejBkDm4ZKjG0leGJwgfXMy5gfknzQR`
 * **USDT (TRC-20):** `TEL1XmhnoE6eeudsPEZf3F82bPZMKrrrSd`
-* **GitHub Star:** Leave a ⭐ if you find this project useful!
+### ⭐ GitHub Star: 
+* **Leave a ⭐ if you find this project useful!**
 ## ⚙️ How It Works (Code Analysis)
 
 The script relies on `adb shell` and `su` commands to bypass Android's time synchronization.
