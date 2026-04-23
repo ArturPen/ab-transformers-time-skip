@@ -7,62 +7,103 @@ import os
 import subprocess
 
 def setup_logging():
-    """Configures real-time logging to both the console and a text file."""
+    """
+    Configures dual-channel logging: 
+    1. A permanent file log for debugging.
+    2. A dynamic console output for user feedback.
+    """
     log_file = "farm_log.txt"
     
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(message)s',
-        datefmt='%H:%M:%S',
-        handlers=[
-            logging.FileHandler(log_file, mode='w', encoding='utf-8'),
-            logging.StreamHandler()
-        ]
-    )
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear() # Reset existing handlers
     
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
+    
+    # File Handler: Captures all event details
+    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.INFO)
+    
+    # Console Handler: Filtered output to keep the UI clean
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.INFO)
+    
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    # Automatically open the log file based on the Operating System
     try:
         if platform.system() == 'Windows':
             os.startfile(log_file)
-        elif platform.system() == 'Darwin':
+        elif platform.system() == 'Darwin': # macOS
             subprocess.call(['open', log_file])
-        else:
+        else: # Linux/Other
             subprocess.call(['xdg-open', log_file])
     except Exception as e:
         logging.error(f"Could not open log file automatically: {e}")
+        
+    return console_handler
 
-def start_farming(iterations, mode):
+def start_farming(iterations, mode, console_handler):
+    """
+    Executes the farming loop and handles the post-farm calendar synchronization.
+    """
     driver = GameDriver()
     if not driver.connect(): 
         return
         
+    # UI coordinates for the 'Claim' button
     BTN_X, BTN_Y = 720, 890
+    
+    # Duration estimation (Average cycle time is ~8 seconds)
+    total_seconds = iterations * 8
+    m, s = divmod(total_seconds, 60)
+    h, m = divmod(m, 60)
+    
+    if h > 0:
+        est_time = f"{h}h {m}m {s}s"
+    elif m > 0:
+        est_time = f"{m}m {s}s"
+    else:
+        est_time = f"{s}s"
     
     logging.info("="*50)
     mode_name = "Gems Farm (+2 Days Jump)" if mode == 1 else "Resources Farm (+1 Day Jump)"
     logging.info(f"FARMING MODE: {mode_name}")
     logging.info(f"TARGET LOOPS: {iterations} cycles.")
+    logging.info(f"ESTIMATED TIME: ~{est_time}")
     logging.info("="*50)
 
+    # Silence console INFO logs during the loop to avoid terminal clutter
+    console_handler.setLevel(logging.WARNING)
+
     for i in range(iterations):
-        logging.info(f"\n--- [Cycle {i+1}/{iterations}] ---")
+        # Progress is recorded in the log file, but hidden from the console
+        logging.info(f"--- [Cycle {i+1}/{iterations}] ---")
         
-        # 1. Jump into the future based on selected mode
+        # Step 1: Execute Time Skip based on selected strategy
         if mode == 1:
-            driver.skip_days(2) # Breaks streak, repeat day 1
+            driver.skip_days(2) # Strategy: Break streak to force Day 1 rewards (Gems)
         elif mode == 2:
-            driver.skip_days(1) # Keeps streak, collects weekly calendar
+            driver.skip_days(1) # Strategy: Progress through the weekly calendar
             
-        # 2. Wait for the game to process the date change
+        # Step 2: Sync wait for game engine to register date change
         time.sleep(5)
         
-        # 3. Tap the "Claim" button
+        # Step 3: Interaction with the reward UI
         driver.click(BTN_X, BTN_Y)
         
-        # 4. Short pause to allow collection animation to finish
+        # Step 4: Grace period for the collection animation
         time.sleep(2)
 
-    logging.info("\n[+] Farming phase completed! Initiating calendar fix...")
+    # Re-enable console logging for the finalization phase
+    console_handler.setLevel(logging.INFO)
+
+    logging.info("[+] Farming phase completed! Initiating calendar fix...")
     
+    # Reset game state to apply time correction safely
     driver.stop_game()
     time.sleep(2)
     driver.apply_fix() 
@@ -73,41 +114,41 @@ def start_farming(iterations, mode):
     time.sleep(25)
     
     logging.info("===================================================")
-    logging.info("[SUCCESS] The game is open. DO NOT touch anything.")
-    logging.info("Wait on the map until your phone/emulator clock hits exactly 00:00.")
-    logging.info("The game will register the real-time day change, restoring quest and coin cycles.")
-    logging.info("Once the calendar is fixed, you may turn your internet back on.")
+    logging.info("[SUCCESS] Setup complete. DO NOT touch the device.")
+    logging.info("Stay on the map view until your device clock reaches 00:00.")
+    logging.info("The game will naturally sync the day change, restoring cycles.")
     logging.info("===================================================")
 
 if __name__ == "__main__":
-    setup_logging()
+    console_handler = setup_logging()
     
     print("\n--- Angry Birds Transformers: Time Skip Auto-Farmer ---")
-    print("Please select your farming mode:")
-    print("  [1] Gems Farm      (Skips 2 days to break streak, farms 5 gems per claim)")
-    print("  [2] Resources Farm (Skips 1 day to collect sequential weekly rewards)")
+    print("Select Farming Strategy:")
+    print("  [1] Gems Farm      (Skips 2 days; targets 5 gems per claim)")
+    print("  [2] Resources Farm (Skips 1 day; targets sequential weekly rewards)")
     
     try:
-        mode_input = int(input("\nEnter mode (1 or 2): "))
+        mode_input = int(input("\nEnter choice (1 or 2): "))
         
         if mode_input not in [1, 2]:
-            logging.error("Invalid mode selected. Please restart and choose 1 or 2.")
+            logging.error("Invalid selection. Please run the script again.")
         else:
             if mode_input == 1:
-                target = int(input("Enter the total amount of gems you want to farm: "))
+                target = int(input("Enter desired gem amount: "))
                 if target <= 0:
-                    logging.error("Please enter a positive number.")
+                    logging.error("Target must be a positive integer.")
                 else:
+                    # Calculate loops needed (5 gems per loop)
                     loops = math.ceil(target / 5)
-                    start_farming(loops, mode_input)
+                    start_farming(loops, mode_input, console_handler)
                     
             elif mode_input == 2:
-                # For resource farming, asking for days makes more sense than a specific gem target
-                loops = int(input("Enter the number of days (claims) you want to process (15 days or more): "))
+                # Sequential farming requires at least 15 claims
+                loops = int(input("Enter number of days to farm (Minimum 15): "))
                 if loops <= 14:
-                    logging.error("Please enter 15 or more.")
+                    logging.error("Minimum 15 days required for this mode.")
                 else:
-                    start_farming(loops, mode_input)
+                    start_farming(loops, mode_input, console_handler)
                     
     except ValueError:
-        logging.error("Invalid input. Please enter numbers only.")
+        logging.error("Input Error: Please enter numeric values only.")
