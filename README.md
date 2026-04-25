@@ -33,7 +33,7 @@ If this tool saved you time and gems, feel free to support the project!
 
 ---
 
-## 🖥️ GUI Overview (v2.0.0)
+## 🖥️ GUI Overview
 
 `main.py` has been replaced by `app.py`, which launches a dark-themed desktop window (`ABTFarmerApp`) built with Python's built-in `tkinter` library. No additional libraries need to be installed.
 
@@ -215,6 +215,15 @@ All messages follow the format `HH:MM:SS [LEVEL] message`. Key entries:
 | `[FIX] Reverting time to yesterday 23:59` | Time Fix started |
 | `[SUCCESS] Game launched successfully` | Game is running |
 | `[STOP] Program was stopped via the 'stop' command.` | Manual stop recorded |
+
+---
+
+## ⚠️ Antivirus Notice
+Some antivirus software (like Windows Defender) may flag the `.exe` version as a false positive. This happens because:
+1. The app is bundled using **PyInstaller**, which is sometimes flagged by heuristic engines.
+2. The app uses **ADB (Android Debug Bridge)** to communicate with your emulator.
+
+**Is it safe?** Yes. You can check the source code yourself—the app only interacts with ADB and your game. If your antivirus blocks the app, please choose "start anyway", add it to the **exclusions list** or run the script version directly using Python.
 
 ---
 
