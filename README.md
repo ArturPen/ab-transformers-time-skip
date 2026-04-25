@@ -167,7 +167,7 @@ Before the loop starts, the script prints how long the full run will take based 
 
 ### Graphical Interface
 
-A 580×800 dark-themed window (`#16161e` background, orange accents) centers itself on launch and is fully resizable. Text is DPI-aware on Windows high-resolution displays.
+A dark-themed window centers itself on launch and is fully resizable. Text is DPI-aware on Windows high-resolution displays.
 
 ### Two-Channel Logging
 
