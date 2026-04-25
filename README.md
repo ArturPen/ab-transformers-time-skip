@@ -3,7 +3,8 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![ADB](https://img.shields.io/badge/ADB-Android%20Debug%20Bridge-green.svg)](https://developer.android.com/tools/adb)
-
+[![BlueStacks 5](https://img.shields.io/badge/BlueStacks-5-blue.svg)](https://www.bluestacks.com/)
+[![BSTweaker](https://img.shields.io/badge/Magisk%2027%2FBSTweaker-Root%20Utility-orange.svg)](https://bstweaker.ru/)
 A fully automated Python script for the **Ultimate Time-Skip Glitch** in Angry Birds Transformers.
 Connects to a rooted BlueStacks emulator via ADB, manipulates the system clock to farm gems and resources, and safely restores the calendar sync so your timers don't break.
 
@@ -168,7 +169,7 @@ All user-adjustable values are at the top of each file:
 **`driver.py`**
 ```python
 adb_address = "127.0.0.1:5575"   # Your BlueStacks ADB port
-package_name = "com.rovio.angrybirdstransformers"
+package_name = "com.rovio.angrybirdstransformers"   # Your game package name
 ```
 
 **`main.py`**
