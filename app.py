@@ -1,0 +1,896 @@
+"""
+ArturPen's ABT Farmer — GUI v2.0.0
+Replaces main.py. Run this file to launch the graphical interface.
+Requires: driver.py and ADB files (adb.exe, AdbWinApi.dll, AdbWinUsbApi.dll)
+          in the same folder.
+"""
+
+import tkinter as tk
+from tkinter import font as tkfont
+import threading
+import queue
+import json
+import os
+import sys
+import math
+import time
+import logging
+import webbrowser
+from datetime import datetime
+
+from driver import GameDriver
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Constants
+# ─────────────────────────────────────────────────────────────────────────────
+APP_VERSION = "2.0.0"
+APP_TITLE   = f"ArturPen's ABT Farmer  v{APP_VERSION}"
+CONFIG_FILE = "config.json"
+LOG_FILE    = "farm_log.txt"
+GITHUB_URL  = "https://github.com/ArturPen/ab-transformers-time-skip"
+
+DEFAULT_CONFIG = {
+    "adb_address":   "127.0.0.1:5575",
+    "package_name":  "com.rovio.angrybirdstransformers",
+    "activity_name": "com.rovio.angrybirdstransformers.AngryBirdsTransformersActivity",
+    "btn_x": 720,
+    "btn_y": 890,
+}
+
+DONATE_TON  = "UQB4L-ZzhteBgkQEWqejBkDm4ZKjG0leGJwgfXMy5gfknzQR"
+DONATE_USDT = "TEL1XmhnoE6eeudsPEZf3F82bPZMKrrrSd"
+
+# ── Palette ───────────────────────────────────────────────────────────────────
+BG         = "#16161e"
+SURFACE    = "#1f1f2e"
+SURFACE2   = "#2a2a3d"
+ACCENT     = "#ff6b35"
+ACCENT_DIM = "#7a3318"
+STOP_RED   = "#e94560"
+STOP_DIM   = "#2e1520"
+STOP_DIM_FG= "#6b3040"
+TEXT       = "#f0f0f8"
+SUBTEXT    = "#8888aa"
+SUCCESS    = "#4ecca3"
+WARNING    = "#ffd166"
+ERR        = "#ff4757"
+BORDER     = "#2e2e45"
+LOG_BG     = "#0d0d18"
+LOG_FG     = "#c8c8e8"
+
+# ── Fonts ─────────────────────────────────────────────────────────────────────
+F_TITLE  = ("Segoe UI", 13, "bold")
+F_BOLD   = ("Segoe UI", 10, "bold")
+F_BODY   = ("Segoe UI", 10)
+F_SMALL  = ("Segoe UI", 8)
+F_MONO   = ("Consolas", 9)
+F_LABEL  = ("Segoe UI", 9)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Config helpers
+# ─────────────────────────────────────────────────────────────────────────────
+def load_config() -> dict:
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return {**DEFAULT_CONFIG, **json.load(f)}
+        except Exception:
+            pass
+    return DEFAULT_CONFIG.copy()
+
+
+def save_config(cfg: dict):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Queue-based logging handler (farming thread → GUI)
+# ─────────────────────────────────────────────────────────────────────────────
+class QueueHandler(logging.Handler):
+    def __init__(self, log_queue: queue.Queue):
+        super().__init__()
+        self.log_queue = log_queue
+
+    def emit(self, record: logging.LogRecord):
+        self.log_queue.put(self.format(record))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Farming worker — runs in a background thread
+# ─────────────────────────────────────────────────────────────────────────────
+def farming_worker(mode: int, amount: int, cfg: dict,
+                   stop_event: threading.Event,
+                   log_q: queue.Queue,
+                   ctrl_q: queue.Queue):
+    """
+    mode 1 = Farm Gems   (2-day skip, 5 gems/cycle)
+    mode 2 = Farm Resources (1-day skip, sequential rewards, min 15)
+
+    ctrl_q messages:
+        "STOP_UNLOCKED"  – mode 2 only: cycle 14 done, stop is now safe
+        "DONE"           – farming finished normally
+        "STOPPED"        – farming stopped via stop command (fix executed)
+        "ERROR:<msg>"    – fatal error
+    """
+
+    # ── Setup logging ──────────────────────────────────────────────────────
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+
+    fmt = logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S")
+    q_handler = QueueHandler(log_q)
+    q_handler.setFormatter(fmt)
+    logger.addHandler(q_handler)
+
+    # File handler
+    try:
+        fh = logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8")
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+    except Exception:
+        pass
+
+    # ── Connect ────────────────────────────────────────────────────────────
+    try:
+        driver = GameDriver(
+            adb_address=cfg["adb_address"],
+            package_name=cfg["package_name"],
+            activity_name=cfg["activity_name"],
+        )
+    except Exception as e:
+        ctrl_q.put(f"ERROR:Failed to create driver: {e}")
+        return
+
+    if not driver.connect():
+        ctrl_q.put("ERROR:Could not connect to emulator. Check ADB settings.")
+        return
+
+    BTN_X = int(cfg["btn_x"])
+    BTN_Y = int(cfg["btn_y"])
+
+    # ── Calculate loops ────────────────────────────────────────────────────
+    if mode == 1:
+        loops = math.ceil(amount / 5)
+        mode_name = "Farm Gems (+2 day skip)"
+    else:
+        loops = amount
+        mode_name = "Farm Resources (+1 day skip)"
+
+    total_sec = loops * 8
+    h, rem = divmod(total_sec, 3600)
+    m, s   = divmod(rem, 60)
+    if h:   est = f"{h}h {m}m {s}s"
+    elif m: est = f"{m}m {s}s"
+    else:   est = f"{s}s"
+
+    logging.info("=" * 48)
+    logging.info(f"MODE:   {mode_name}")
+    logging.info(f"LOOPS:  {loops} cycles")
+    logging.info(f"ETA:    ~{est}")
+    logging.info("=" * 48)
+
+    if mode == 1:
+        logging.info("[INFO] Stop button is active — click it anytime.")
+    else:
+        logging.info("[INFO] Stop button unlocks after cycle 14.")
+
+    # ── Helper: interruptible sleep ────────────────────────────────────────
+    def isleep(seconds: int) -> bool:
+        """Returns True if stop was requested during sleep."""
+        for _ in range(seconds):
+            if stop_event.is_set():
+                return True
+            time.sleep(1)
+        return False
+
+    # ── Main loop ──────────────────────────────────────────────────────────
+    stopped_early = False
+
+    for i in range(loops):
+        cycle = i + 1
+
+        # Stop-flag check
+        if mode == 1 and stop_event.is_set():
+            stopped_early = True
+            break
+        if mode == 2 and i >= 14 and stop_event.is_set():
+            stopped_early = True
+            break
+
+        logging.info(f"── Cycle {cycle}/{loops} ──────────────────────────")
+
+        # Step 1: time skip
+        if mode == 1:
+            driver.skip_days(2)
+        else:
+            driver.skip_days(1)
+
+        # Step 2: wait for game engine
+        interrupted = isleep(5) if (mode == 1 or (mode == 2 and i >= 14)) else not not time.sleep(5)
+        if interrupted:
+            stopped_early = True
+            break
+
+        # Step 3: tap claim button
+        driver.click(BTN_X, BTN_Y)
+
+        # Step 4: animation grace period
+        interrupted = isleep(2) if (mode == 1 or (mode == 2 and i >= 14)) else not not time.sleep(2)
+        if interrupted:
+            stopped_early = True
+            break
+
+        # After cycle 14 in mode 2: unlock stop
+        if mode == 2 and cycle == 14:
+            ctrl_q.put("STOP_UNLOCKED")
+            logging.info("[INFO] Cycle 14 complete — Stop button is now active.")
+
+    # ── Finalization ───────────────────────────────────────────────────────
+    def run_fix():
+        logging.info("[FIX] Running Time Fix procedure...")
+        driver.stop_game()
+        time.sleep(2)
+        driver.apply_fix()
+        time.sleep(2)
+        driver.start_game()
+
+    if stopped_early:
+        logging.info("[STOP] Stop command received. Executing fix before exit...")
+        run_fix()
+        logging.info("[STOP] Program was stopped via the stop command.")
+        logging.info("[STOP] Fix complete. Wait for 00:00 on the map screen.")
+        logging.info("=" * 48)
+        ctrl_q.put("STOPPED")
+        return
+
+    logging.info("[+] Farming complete! Running Time Fix...")
+    run_fix()
+    logging.info("[!] Waiting 25 seconds for map to load...")
+    time.sleep(25)
+    logging.info("=" * 48)
+    logging.info("[SUCCESS] Done. Stay on the map until 00:00.")
+    logging.info("The game will sync naturally at midnight.")
+    logging.info("=" * 48)
+    ctrl_q.put("DONE")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper: flat styled button
+# ─────────────────────────────────────────────────────────────────────────────
+def make_btn(parent, text, command, bg=ACCENT, fg=TEXT,
+             font=F_BOLD, pady=8, padx=18, width=None, cursor="hand2"):
+    b = tk.Button(
+        parent, text=text, command=command,
+        bg=bg, fg=fg, font=font,
+        relief="flat", bd=0,
+        padx=padx, pady=pady,
+        activebackground=bg, activeforeground=fg,
+        cursor=cursor,
+    )
+    if width:
+        b.config(width=width)
+    return b
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main Application Class
+# ─────────────────────────────────────────────────────────────────────────────
+class ABTFarmerApp(tk.Tk):
+
+    def __init__(self):
+        super().__init__()
+
+        self.config_data  = load_config()
+        self.log_q:  queue.Queue = queue.Queue()
+        self.ctrl_q: queue.Queue = queue.Queue()
+        self.stop_event = threading.Event()
+        self.farming    = False
+        self.mode_var   = tk.IntVar(value=1)  # 1 = Gems, 2 = Resources
+        self._stop_btn_active = False          # tracks live stop state in mode 2
+
+        self._setup_window()
+        self._build_main_frame()
+        self._build_settings_frame()
+        self._build_donate_frame()
+        self._show_frame(self.main_frame)
+
+    # ── Window setup ──────────────────────────────────────────────────────────
+    def _setup_window(self):
+        self.title(APP_TITLE)
+        self.resizable(True, True)
+        self.minsize(540, 660)
+        self.configure(bg=BG)
+
+        w, h = 580, 800
+        self.update_idletasks()
+        sx = (self.winfo_screenwidth()  - w) // 2
+        sy = (self.winfo_screenheight() - h) // 2
+        self.geometry(f"{w}x{h}+{sx}+{sy}")
+
+    # ── Frame switcher ────────────────────────────────────────────────────────
+    def _show_frame(self, frame: tk.Frame):
+        for f in (self.main_frame, self.settings_frame, self.donate_frame):
+            f.place_forget()
+        frame.place(x=0, y=0, relwidth=1, relheight=1)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # MAIN FRAME
+    # ─────────────────────────────────────────────────────────────────────────
+    def _build_main_frame(self):
+        f = tk.Frame(self, bg=BG)
+        self.main_frame = f
+
+        # ── Header ────────────────────────────────────────────────────────
+        hdr = tk.Frame(f, bg=SURFACE, height=64)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+
+        tk.Label(hdr, text="🤖  ABT Farmer", font=F_TITLE,
+                 bg=SURFACE, fg=TEXT).pack(side="left", padx=20, pady=16)
+        tk.Label(hdr, text=f"v{APP_VERSION}", font=F_SMALL,
+                 bg=SURFACE, fg=SUBTEXT).pack(side="left", pady=20)
+
+        # ── Mode selector ─────────────────────────────────────────────────
+        mode_frame = tk.Frame(f, bg=BG)
+        mode_frame.pack(fill="x", padx=24, pady=(20, 0))
+
+        tk.Label(mode_frame, text="Farming Mode", font=F_BOLD,
+                 bg=BG, fg=TEXT).pack(anchor="w")
+
+        radio_row = tk.Frame(mode_frame, bg=BG)
+        radio_row.pack(anchor="w", pady=(8, 0))
+
+        radio_cfg = dict(
+            variable=self.mode_var,
+            bg=BG, fg=TEXT,
+            selectcolor=SURFACE2,
+            activebackground=BG,
+            activeforeground=TEXT,
+            font=F_BODY,
+            cursor="hand2",
+            command=self._on_mode_change,
+        )
+        self.rb_gems = tk.Radiobutton(
+            radio_row, text="💎  Farm Gems", value=1, **radio_cfg)
+        self.rb_gems.pack(side="left")
+
+        tk.Label(radio_row, text="  │  ", bg=BG, fg=BORDER).pack(side="left")
+
+        self.rb_res = tk.Radiobutton(
+            radio_row, text="📦  Farm Resources", value=2, **radio_cfg)
+        self.rb_res.pack(side="left")
+
+        # ── Amount input ──────────────────────────────────────────────────
+        inp_frame = tk.Frame(f, bg=BG)
+        inp_frame.pack(fill="x", padx=24, pady=(18, 0))
+
+        self.inp_label_var = tk.StringVar(value="Gems to farm:")
+        tk.Label(inp_frame, textvariable=self.inp_label_var,
+                 font=F_BOLD, bg=BG, fg=TEXT).pack(anchor="w")
+
+        entry_row = tk.Frame(inp_frame, bg=BG)
+        entry_row.pack(anchor="w", pady=(6, 0))
+
+        self.amount_entry = tk.Entry(
+            entry_row, width=12,
+            font=("Segoe UI", 12),
+            bg=SURFACE2, fg=TEXT,
+            insertbackground=TEXT,
+            relief="flat", bd=0,
+        )
+        self.amount_entry.pack(side="left", ipady=8, ipadx=8)
+        self.amount_entry.insert(0, "100")
+
+        # Validation message (hidden until needed)
+        self.val_label = tk.Label(
+            inp_frame, text="", font=F_SMALL,
+            bg=BG, fg=WARNING)
+        self.val_label.pack(anchor="w", pady=(4, 0))
+
+        # ── Separator ─────────────────────────────────────────────────────
+        tk.Frame(f, bg=BORDER, height=1).pack(fill="x", padx=24, pady=18)
+
+        # ── START / STOP button ───────────────────────────────────────────
+        btn_container = tk.Frame(f, bg=BG)
+        btn_container.pack(padx=24, fill="x")
+
+        self.action_btn = make_btn(
+            btn_container,
+            text="▶   START",
+            command=self._on_start,
+            bg=ACCENT, fg=TEXT,
+            font=("Segoe UI", 12, "bold"),
+            pady=12, padx=0,
+        )
+        self.action_btn.pack(fill="x")
+
+        # Mode-2 hint shown under stop button
+        self.stop_hint = tk.Label(
+            btn_container, text="",
+            font=F_SMALL, bg=BG, fg=SUBTEXT)
+        self.stop_hint.pack(pady=(4, 0))
+
+        # ── Bottom bar ────────────────────────────────────────────────────
+        # NOTE: must be packed BEFORE the expanding log area so pack(side="bottom")
+        # claims its space correctly in tkinter's layout engine.
+        bottom = tk.Frame(f, bg=SURFACE, height=44)
+        bottom.pack(fill="x", side="bottom")
+        bottom.pack_propagate(False)
+
+        make_btn(bottom, "⚙  Settings", self._open_settings,
+                 bg=SURFACE, fg=SUBTEXT, font=F_LABEL,
+                 pady=4, padx=14).pack(side="left", padx=8, pady=8)
+
+        make_btn(bottom, "❤  Donate", self._open_donate,
+                 bg=SURFACE, fg=SUBTEXT, font=F_LABEL,
+                 pady=4, padx=14).pack(side="right", padx=8, pady=8)
+
+        # ── Log area ──────────────────────────────────────────────────────
+        log_outer = tk.Frame(f, bg=SURFACE, bd=0)
+        log_outer.pack(fill="both", expand=True, padx=24, pady=(14, 8))
+
+        log_hdr = tk.Frame(log_outer, bg=SURFACE)
+        log_hdr.pack(fill="x", padx=10, pady=(8, 0))
+        tk.Label(log_hdr, text="▸ Activity Log", font=F_LABEL,
+                 bg=SURFACE, fg=SUBTEXT).pack(side="left")
+
+        scrollbar = tk.Scrollbar(log_outer, bg=SURFACE, troughcolor=SURFACE)
+        scrollbar.pack(side="right", fill="y", padx=(0, 4), pady=(0, 4))
+
+        self.log_text = tk.Text(
+            log_outer,
+            bg=LOG_BG, fg=LOG_FG,
+            font=F_MONO,
+            relief="flat", bd=0,
+            state="disabled",
+            yscrollcommand=scrollbar.set,
+            wrap="word",
+            padx=10, pady=6,
+            cursor="arrow",
+        )
+        self.log_text.pack(fill="both", expand=True, padx=(4, 0), pady=(0, 4))
+        scrollbar.config(command=self.log_text.yview)
+
+        # Log text color tags
+        self.log_text.tag_config("info",    foreground=LOG_FG)
+        self.log_text.tag_config("success", foreground=SUCCESS)
+        self.log_text.tag_config("warning", foreground=WARNING)
+        self.log_text.tag_config("error",   foreground=ERR)
+        self.log_text.tag_config("stop",    foreground=STOP_RED)
+        self.log_text.tag_config("dim",     foreground=SUBTEXT)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # SETTINGS FRAME  (scrollable)
+    # ─────────────────────────────────────────────────────────────────────────
+    def _build_settings_frame(self):
+        f = tk.Frame(self, bg=BG)
+        self.settings_frame = f
+
+        # ── Fixed header (not scrolled) ───────────────────────────────────
+        hdr = tk.Frame(f, bg=SURFACE, height=64)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+
+        make_btn(hdr, "←", lambda: self._show_frame(self.main_frame),
+                 bg=SURFACE, fg=SUBTEXT, font=("Segoe UI", 14),
+                 pady=4, padx=16).pack(side="left", padx=4, pady=12)
+
+        tk.Label(hdr, text="Settings", font=F_TITLE,
+                 bg=SURFACE, fg=TEXT).pack(side="left", pady=16)
+
+        # ── Scrollable content area ───────────────────────────────────────
+        # Canvas + inner Frame is the standard tkinter scrollable pattern.
+        scroll_container = tk.Frame(f, bg=BG)
+        scroll_container.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(scroll_container, bg=BG,
+                           highlightthickness=0, bd=0)
+        vsb = tk.Scrollbar(scroll_container, orient="vertical",
+                           command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+
+        vsb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        # Inner frame lives inside the canvas
+        body = tk.Frame(canvas, bg=BG)
+        body_window = canvas.create_window((0, 0), window=body, anchor="nw")
+
+        # Keep inner frame width in sync with canvas width
+        def _on_canvas_resize(event):
+            canvas.itemconfig(body_window, width=event.width)
+        canvas.bind("<Configure>", _on_canvas_resize)
+
+        # Update scroll region when body changes size
+        def _on_body_resize(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        body.bind("<Configure>", _on_body_resize)
+
+        # Mouse-wheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        # Unbind when leaving this frame so it doesn't affect other frames
+        f.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        f.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        # ── Fields (inside scrollable body) ──────────────────────────────
+        inner = tk.Frame(body, bg=BG)
+        inner.pack(fill="x", padx=28, pady=16)
+
+        self._settings_vars = {}
+
+        fields = [
+            ("adb_address",   "ADB Address",
+             "e.g. 127.0.0.1:5575  (check BlueStacks Advanced settings)"),
+            ("package_name",  "Package Name",
+             "Default: com.rovio.angrybirdstransformers"),
+            ("activity_name", "Activity Name",
+             "Default: ...AngryBirdsTransformersActivity"),
+        ]
+
+        for key, label, hint in fields:
+            self._add_settings_field(inner, key, label, hint)
+
+        # X / Y coordinates
+        tk.Label(inner, text="Claim Button Coordinates",
+                 font=F_BOLD, bg=BG, fg=TEXT
+                 ).pack(anchor="w", pady=(14, 2))
+        tk.Label(inner,
+            text="Default X=720, Y=890 for 1920×1080. Change if using a different resolution.",
+            font=F_SMALL, bg=BG, fg=SUBTEXT, wraplength=460, justify="left"
+            ).pack(anchor="w")
+
+        xy_row = tk.Frame(inner, bg=BG)
+        xy_row.pack(anchor="w", pady=(6, 0))
+
+        for key, lbl_text in [("btn_x", "X"), ("btn_y", "Y")]:
+            grp = tk.Frame(xy_row, bg=BG)
+            grp.pack(side="left", padx=(0, 20))
+            tk.Label(grp, text=lbl_text, font=F_LABEL, bg=BG, fg=SUBTEXT).pack(anchor="w")
+            v = tk.StringVar(value=str(self.config_data.get(key, "")))
+            self._settings_vars[key] = v
+            e = tk.Entry(grp, textvariable=v, width=7,
+                         font=F_BODY, bg=SURFACE2, fg=TEXT,
+                         insertbackground=TEXT, relief="flat", bd=0)
+            e.pack(ipady=6, ipadx=6)
+
+        # ── Separator ─────────────────────────────────────────────────────
+        tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", pady=18)
+
+        # ── GitHub link ───────────────────────────────────────────────────
+        gh_row = tk.Frame(inner, bg=BG)
+        gh_row.pack(anchor="w")
+        tk.Label(gh_row, text="🔗  ", font=F_BODY, bg=BG, fg=TEXT).pack(side="left")
+        gh_link = tk.Label(gh_row, text="GitHub Repository",
+                           font=("Segoe UI", 10, "underline"),
+                           bg=BG, fg=ACCENT, cursor="hand2")
+        gh_link.pack(side="left")
+        gh_link.bind("<Button-1>", lambda e: webbrowser.open(GITHUB_URL))
+
+        # ── Save button ───────────────────────────────────────────────────
+        save_btn = make_btn(inner, "💾  Save Settings", self._save_settings,
+                            bg=ACCENT, fg=TEXT, font=F_BOLD, pady=10, padx=0)
+        save_btn.pack(fill="x", pady=(20, 0))
+
+        self.settings_saved_label = tk.Label(inner, text="",
+            font=F_SMALL, bg=BG, fg=SUCCESS)
+        self.settings_saved_label.pack(pady=(6, 16))
+
+    def _add_settings_field(self, parent, key, label, hint):
+        tk.Label(parent, text=label, font=F_BOLD, bg=BG, fg=TEXT
+                 ).pack(anchor="w", pady=(12, 2))
+        tk.Label(parent, text=hint, font=F_SMALL, bg=BG, fg=SUBTEXT,
+                 wraplength=460, justify="left").pack(anchor="w")
+        v = tk.StringVar(value=self.config_data.get(key, ""))
+        self._settings_vars[key] = v
+        e = tk.Entry(parent, textvariable=v,
+                     font=F_BODY, bg=SURFACE2, fg=TEXT,
+                     insertbackground=TEXT, relief="flat", bd=0)
+        e.pack(fill="x", ipady=7, ipadx=8, pady=(4, 0))
+
+    def _save_settings(self):
+        for key, var in self._settings_vars.items():
+            val = var.get().strip()
+            if key in ("btn_x", "btn_y"):
+                try:
+                    self.config_data[key] = int(val)
+                except ValueError:
+                    self.settings_saved_label.config(
+                        text=f"⚠ {key} must be an integer.", fg=WARNING)
+                    return
+            else:
+                self.config_data[key] = val
+        save_config(self.config_data)
+        self.settings_saved_label.config(text="✓ Settings saved.", fg=SUCCESS)
+        self.after(2000, lambda: self.settings_saved_label.config(text=""))
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # DONATE FRAME
+    # ─────────────────────────────────────────────────────────────────────────
+    def _build_donate_frame(self):
+        f = tk.Frame(self, bg=BG)
+        self.donate_frame = f
+
+        # ── Header ────────────────────────────────────────────────────────
+        hdr = tk.Frame(f, bg=SURFACE, height=64)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+
+        make_btn(hdr, "←", lambda: self._show_frame(self.main_frame),
+                 bg=SURFACE, fg=SUBTEXT, font=("Segoe UI", 14),
+                 pady=4, padx=16).pack(side="left", padx=4, pady=12)
+
+        tk.Label(hdr, text="Support the Project", font=F_TITLE,
+                 bg=SURFACE, fg=TEXT).pack(side="left", pady=16)
+
+        # ── Body ──────────────────────────────────────────────────────────
+        body = tk.Frame(f, bg=BG)
+        body.pack(fill="both", expand=True, padx=28, pady=20)
+
+        tk.Label(body,
+            text="If this tool saved you time and gems,\nfeel free to support the project! 🙏",
+            font=("Segoe UI", 11), bg=BG, fg=TEXT,
+            justify="center").pack(pady=(0, 24))
+
+        self._add_donate_row(body, "🪙  TON",  DONATE_TON)
+        self._add_donate_row(body, "💵  USDT (TRC-20)", DONATE_USDT)
+
+        tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=28)
+
+        star_row = tk.Frame(body, bg=BG)
+        star_row.pack()
+        tk.Label(star_row, text="⭐  ", font=("Segoe UI", 12), bg=BG, fg=WARNING
+                 ).pack(side="left")
+        gh_link = tk.Label(star_row,
+            text="Leave a star on GitHub!",
+            font=("Segoe UI", 11, "underline"),
+            bg=BG, fg=ACCENT, cursor="hand2")
+        gh_link.pack(side="left")
+        gh_link.bind("<Button-1>", lambda e: webbrowser.open(GITHUB_URL))
+
+    def _add_donate_row(self, parent, title, address):
+        grp = tk.Frame(parent, bg=SURFACE, pady=12, padx=14)
+        grp.pack(fill="x", pady=(0, 12))
+
+        tk.Label(grp, text=title, font=F_BOLD, bg=SURFACE, fg=TEXT
+                 ).pack(anchor="w")
+
+        addr_row = tk.Frame(grp, bg=SURFACE)
+        addr_row.pack(fill="x", pady=(6, 0))
+
+        addr_lbl = tk.Label(addr_row,
+            text=address,
+            font=("Consolas", 9), bg=SURFACE2, fg=LOG_FG,
+            padx=8, pady=6, wraplength=370, justify="left")
+        addr_lbl.pack(side="left", fill="x", expand=True)
+
+        copy_btn = make_btn(
+            addr_row, "Copy",
+            command=lambda a=address: self._copy_to_clipboard(a),
+            bg=ACCENT, fg=TEXT,
+            font=F_SMALL, pady=5, padx=10)
+        copy_btn.pack(side="right", padx=(8, 0))
+
+    def _copy_to_clipboard(self, text: str):
+        self.clipboard_clear()
+        self.clipboard_append(text)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Mode change handler
+    # ─────────────────────────────────────────────────────────────────────────
+    def _on_mode_change(self):
+        mode = self.mode_var.get()
+        if mode == 1:
+            self.inp_label_var.set("Gems to farm:")
+            if self.amount_entry.get() in ("15", ""):
+                self.amount_entry.delete(0, "end")
+                self.amount_entry.insert(0, "100")
+            self.val_label.config(text="")
+        else:
+            self.inp_label_var.set("Days to farm:  (minimum 15)")
+            if self.amount_entry.get() in ("100", ""):
+                self.amount_entry.delete(0, "end")
+                self.amount_entry.insert(0, "15")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Navigation
+    # ─────────────────────────────────────────────────────────────────────────
+    def _open_settings(self):
+        # Sync current config values into settings vars
+        for key, var in self._settings_vars.items():
+            var.set(str(self.config_data.get(key, "")))
+        self.settings_saved_label.config(text="")
+        self._show_frame(self.settings_frame)
+
+    def _open_donate(self):
+        self._show_frame(self.donate_frame)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Farming control
+    # ─────────────────────────────────────────────────────────────────────────
+    def _on_start(self):
+        if self.farming:
+            return
+
+        mode = self.mode_var.get()
+
+        # Validate input
+        try:
+            amount = int(self.amount_entry.get().strip())
+        except ValueError:
+            self.val_label.config(text="⚠  Please enter a valid number.", fg=WARNING)
+            return
+
+        if mode == 1 and amount <= 0:
+            self.val_label.config(text="⚠  Enter a positive number of gems.", fg=WARNING)
+            return
+
+        if mode == 2 and amount < 15:
+            self.val_label.config(
+                text="⚠  Resources mode requires at least 15 days.\n"
+                     "   The Time Fix needs a minimum of 14 skips to work correctly.",
+                fg=WARNING)
+            return
+
+        self.val_label.config(text="")
+        self._start_farming(mode, amount)
+
+    def _start_farming(self, mode: int, amount: int):
+        self.farming = True
+        self.stop_event.clear()
+        self._stop_btn_active = (mode == 1)  # mode 2 starts dimmed
+
+        # Clear log
+        self.log_text.config(state="normal")
+        self.log_text.delete("1.0", "end")
+        self.log_text.config(state="disabled")
+
+        # Switch to STOP button
+        self.action_btn.config(
+            text="⏹  STOP",
+            command=self._on_stop,
+        )
+        self._update_stop_btn_state()
+
+        if mode == 2:
+            self.stop_hint.config(
+                text="Stop will unlock after cycle 14", fg=SUBTEXT)
+        else:
+            self.stop_hint.config(text="")
+
+        # Disable mode/input controls
+        self.rb_gems.config(state="disabled")
+        self.rb_res.config(state="disabled")
+        self.amount_entry.config(state="disabled")
+
+        # Start farming thread
+        t = threading.Thread(
+            target=farming_worker,
+            args=(mode, amount, dict(self.config_data),
+                  self.stop_event, self.log_q, self.ctrl_q),
+            daemon=True,
+        )
+        t.start()
+        self._total_cycles = math.ceil(amount / 5) if mode == 1 else amount
+        self._done_cycles   = 0
+        self._current_mode  = mode
+        self._poll_queues()
+
+    def _on_stop(self):
+        if not self.farming or not self._stop_btn_active:
+            return
+        self.stop_event.set()
+        self.action_btn.config(text="⏳  Stopping...", state="disabled",
+                               bg=SURFACE2, fg=SUBTEXT)
+        self.stop_hint.config(text="Running Time Fix before exit...", fg=SUBTEXT)
+
+    def _update_stop_btn_state(self):
+        if self._stop_btn_active:
+            self.action_btn.config(
+                bg=STOP_RED, fg=TEXT,
+                activebackground=STOP_RED,
+                state="normal",
+            )
+        else:
+            self.action_btn.config(
+                bg=STOP_DIM, fg=STOP_DIM_FG,
+                activebackground=STOP_DIM,
+                state="disabled",
+            )
+
+    def _on_farming_ended(self):
+        """Reset UI after farming finishes (normal or stopped)."""
+        self.farming = False
+        self._stop_btn_active = False
+
+        self.action_btn.config(
+            text="▶   START",
+            command=self._on_start,
+            bg=ACCENT, fg=TEXT,
+            activebackground=ACCENT,
+            state="normal",
+        )
+        self.stop_hint.config(text="")
+
+        self.rb_gems.config(state="normal")
+        self.rb_res.config(state="normal")
+        self.amount_entry.config(state="normal")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Queue polling — runs on main thread every 80ms while farming
+    # ─────────────────────────────────────────────────────────────────────────
+    def _poll_queues(self):
+        # Drain log queue
+        try:
+            while True:
+                msg = self.log_q.get_nowait()
+                self._append_log(msg)
+        except queue.Empty:
+            pass
+
+        # Drain control queue
+        try:
+            while True:
+                cmd = self.ctrl_q.get_nowait()
+                if cmd == "STOP_UNLOCKED":
+                    self._stop_btn_active = True
+                    self._update_stop_btn_state()
+                    self.stop_hint.config(
+                        text="Stop is now active", fg=SUCCESS)
+                elif cmd in ("DONE", "STOPPED"):
+                    self._on_farming_ended()
+                    return   # stop polling
+                elif cmd.startswith("ERROR:"):
+                    self._append_log(f"[ERROR] {cmd[6:]}", tag="error")
+                    self._on_farming_ended()
+                    return
+        except queue.Empty:
+            pass
+
+        if self.farming:
+            self.after(80, self._poll_queues)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Log helpers
+    # ─────────────────────────────────────────────────────────────────────────
+    def _append_log(self, msg: str, tag: str = None):
+        if tag is None:
+            if "[ERROR]" in msg or "Error" in msg:
+                tag = "error"
+            elif "[SUCCESS]" in msg or "[FIX]" in msg:
+                tag = "success"
+            elif "[STOP]" in msg:
+                tag = "stop"
+            elif "[INFO]" in msg or "──" in msg or "==" in msg:
+                tag = "dim"
+            else:
+                tag = "info"
+
+        self.log_text.config(state="normal")
+        self.log_text.insert("end", msg + "\n", tag)
+        self.log_text.see("end")
+        self.log_text.config(state="disabled")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Entry point
+# ─────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    # Fix blurry/compressed text on Windows high-DPI displays.
+    # Must be called BEFORE the Tk window is created.
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            import ctypes
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+    app = ABTFarmerApp()
+    app.mainloop()
