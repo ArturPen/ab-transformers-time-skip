@@ -23,7 +23,7 @@ from driver import GameDriver
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.1"
 APP_TITLE   = f"ArturPen's ABT Farmer  v{APP_VERSION}"
 CONFIG_FILE = "config.json"
 LOG_FILE    = "farm_log.txt"
@@ -443,7 +443,7 @@ class ABTFarmerApp(tk.Tk):
             relief="flat", bd=0,
         )
         self.amount_entry.pack(side="left", ipady=8, ipadx=8)
-        self.amount_entry.insert(0, "100")
+        self.amount_entry.insert(0, "25")
 
         # Validation message (hidden until needed)
         self.val_label = tk.Label(

@@ -33,14 +33,25 @@ class GameDriver:
         self.activity_name = activity_name
         self._adb           = get_adb_path()
 
+    def _check_adb(self) -> bool:
+        """Returns True if adb.exe exists at the expected path, logs an error otherwise."""
+        if not os.path.isfile(self._adb):
+            logging.error("ADB not found! Please check if adb.exe is in the folder.")
+            return False
+        return True
+
     def run_cmd(self, command: str) -> str:
         """Executes an ADB shell command and returns the output."""
+        if not self._check_adb():
+            return ""
         full_cmd = f'"{self._adb}" -s {self.adb_address} {command}'
         result = subprocess.run(full_cmd, shell=True, capture_output=True, text=True)
         return result.stdout.strip()
 
     def connect(self) -> bool:
         """Establishes connection with the BlueStacks emulator."""
+        if not self._check_adb():
+            return False
         logging.info(f"Connecting to {self.adb_address}...")
         subprocess.run(
             f'"{self._adb}" connect {self.adb_address}',
