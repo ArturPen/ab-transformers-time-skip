@@ -1,3 +1,10 @@
+"""
+ArturPen's ABT Farmer — GUI v2.0.0
+Replaces main.py. Run this file to launch the graphical interface.
+Requires: driver.py and ADB files (adb.exe, AdbWinApi.dll, AdbWinUsbApi.dll)
+          in the same folder.
+"""
+
 import tkinter as tk
 from tkinter import font as tkfont
 import threading
@@ -109,22 +116,57 @@ def farming_worker(mode: int, amount: int, cfg: dict,
     """
 
     # ── Setup logging ──────────────────────────────────────────────────────
-    logger = logging.getLogger()
+    # Two channels:
+    #   logger      → log_q (Activity Log in GUI)  — key events only
+    #   file_logger → farm_log.txt (Extended Log)  — full verbose output
+    logger = logging.getLogger("activity")
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
+    logger.propagate = False
+
+    file_logger = logging.getLogger("verbose")
+    file_logger.setLevel(logging.INFO)
+    file_logger.handlers.clear()
+    file_logger.propagate = False
 
     fmt = logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S")
+
     q_handler = QueueHandler(log_q)
     q_handler.setFormatter(fmt)
     logger.addHandler(q_handler)
 
-    # File handler
+    # File handler — verbose only
     try:
         fh = logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8")
         fh.setFormatter(fmt)
-        logger.addHandler(fh)
+        file_logger.addHandler(fh)
     except Exception:
         pass
+
+    def log(msg):
+        """Key event — goes to Activity Log (GUI) only."""
+        logger.info(msg)
+
+    def vlog(msg):
+        """Verbose detail — goes to farm_log.txt (Extended Log) only."""
+        file_logger.info(msg)
+
+    def logall(msg):
+        """Important event — goes to both channels."""
+        logger.info(msg)
+        file_logger.info(msg)
+
+    # Bridge: driver uses logging.getLogger() (root), route it to our file_logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+    root_logger.propagate = False
+
+    class BridgeHandler(logging.Handler):
+        def emit(self, record):
+            file_logger.handle(record)
+
+    root_logger.addHandler(BridgeHandler())
 
     # ── Connect ────────────────────────────────────────────────────────────
     try:
@@ -137,9 +179,11 @@ def farming_worker(mode: int, amount: int, cfg: dict,
         ctrl_q.put(f"ERROR:Failed to create driver: {e}")
         return
 
+    log(f"[INFO] Connecting to {cfg['adb_address']}...")
     if not driver.connect():
         ctrl_q.put("ERROR:Could not connect to emulator. Check ADB settings.")
         return
+    log("[INFO] Connection established.")
 
     BTN_X = int(cfg["btn_x"])
     BTN_Y = int(cfg["btn_y"])
@@ -159,16 +203,18 @@ def farming_worker(mode: int, amount: int, cfg: dict,
     elif m: est = f"{m}m {s}s"
     else:   est = f"{s}s"
 
-    logging.info("=" * 48)
-    logging.info(f"MODE:   {mode_name}")
-    logging.info(f"LOOPS:  {loops} cycles")
-    logging.info(f"ETA:    ~{est}")
-    logging.info("=" * 48)
+    logall("=" * 48)
+    logall(f"MODE:   {mode_name}")
+    logall(f"LOOPS:  {loops} cycles")
+    logall(f"ETA:    ~{est}")
+    logall("=" * 48)
 
     if mode == 1:
-        logging.info("[INFO] Stop button is active — click it anytime.")
+        log("[INFO] Stop button unlocks after cycle 5.")
+        vlog("[INFO] Stop button unlocks after cycle 5.")
     else:
-        logging.info("[INFO] Stop button unlocks after cycle 14.")
+        log("[INFO] Stop button unlocks after cycle 14.")
+        vlog("[INFO] Stop button unlocks after cycle 14.")
 
     # ── Helper: interruptible sleep ────────────────────────────────────────
     def isleep(seconds: int) -> bool:
@@ -186,14 +232,17 @@ def farming_worker(mode: int, amount: int, cfg: dict,
         cycle = i + 1
 
         # Stop-flag check
-        if mode == 1 and stop_event.is_set():
+        if mode == 1 and i >= 5 and stop_event.is_set():
             stopped_early = True
             break
         if mode == 2 and i >= 14 and stop_event.is_set():
             stopped_early = True
             break
 
-        logging.info(f"── Cycle {cycle}/{loops} ──────────────────────────")
+        # Activity Log: compact cycle line
+        log(f"── Cycle {cycle}/{loops}")
+        # Extended Log: full separator
+        vlog(f"── Cycle {cycle}/{loops} ──────────────────────────")
 
         # Step 1: time skip
         if mode == 1:
@@ -202,7 +251,7 @@ def farming_worker(mode: int, amount: int, cfg: dict,
             driver.skip_days(1)
 
         # Step 2: wait for game engine
-        interrupted = isleep(5) if (mode == 1 or (mode == 2 and i >= 14)) else not not time.sleep(5)
+        interrupted = isleep(5) if (mode == 1 and i >= 5) or (mode == 2 and i >= 14) else not not time.sleep(5)
         if interrupted:
             stopped_early = True
             break
@@ -211,42 +260,54 @@ def farming_worker(mode: int, amount: int, cfg: dict,
         driver.click(BTN_X, BTN_Y)
 
         # Step 4: animation grace period
-        interrupted = isleep(2) if (mode == 1 or (mode == 2 and i >= 14)) else not not time.sleep(2)
+        interrupted = isleep(2) if (mode == 1 and i >= 5) or (mode == 2 and i >= 14) else not not time.sleep(2)
         if interrupted:
             stopped_early = True
             break
 
+        # After cycle 5 in mode 1: unlock stop
+        if mode == 1 and cycle == 5:
+            ctrl_q.put("STOP_UNLOCKED")
+            log("[INFO] Cycle 5 complete — Stop is now active.")
+            vlog("[INFO] Cycle 5 complete — Stop button is now active.")
+
         # After cycle 14 in mode 2: unlock stop
         if mode == 2 and cycle == 14:
             ctrl_q.put("STOP_UNLOCKED")
-            logging.info("[INFO] Cycle 14 complete — Stop button is now active.")
+            log("[INFO] Cycle 14 complete — Stop is now active.")
+            vlog("[INFO] Cycle 14 complete — Stop button is now active.")
 
     # ── Finalization ───────────────────────────────────────────────────────
     def run_fix():
-        logging.info("[FIX] Running Time Fix procedure...")
+        logall("[FIX] Running Time Fix procedure...")
+        vlog("[FIX] Force-stopping game...")
         driver.stop_game()
         time.sleep(2)
+        vlog("[FIX] Applying time revert to yesterday 23:59...")
         driver.apply_fix()
         time.sleep(2)
+        vlog("[FIX] Launching game...")
         driver.start_game()
 
     if stopped_early:
-        logging.info("[STOP] Stop command received. Executing fix before exit...")
+        logall("[STOP] Stop received. Executing Time Fix before exit...")
         run_fix()
-        logging.info("[STOP] Program was stopped via the stop command.")
-        logging.info("[STOP] Fix complete. Wait for 00:00 on the map screen.")
-        logging.info("=" * 48)
+        logall("[STOP] Fix complete. Wait for 00:00 on the map screen.")
+        vlog("=" * 48)
+        log("=" * 48)
         ctrl_q.put("STOPPED")
         return
 
-    logging.info("[+] Farming complete! Running Time Fix...")
+    logall("[+] Farming complete! Running Time Fix...")
     run_fix()
-    logging.info("[!] Waiting 25 seconds for map to load...")
+    log("[!] Waiting 25 s for map to load...")
+    vlog("[!] Waiting 25 seconds for map to fully load...")
     time.sleep(25)
-    logging.info("=" * 48)
-    logging.info("[SUCCESS] Done. Stay on the map until 00:00.")
-    logging.info("The game will sync naturally at midnight.")
-    logging.info("=" * 48)
+    logall("=" * 48)
+    logall("[SUCCESS] Done. Stay on the map until 00:00.")
+    log("The game will sync naturally at midnight.")
+    vlog("The game will register a natural day rollover at midnight, restoring cycles.")
+    logall("=" * 48)
     ctrl_q.put("DONE")
 
 
@@ -288,6 +349,9 @@ class ABTFarmerApp(tk.Tk):
         self._build_main_frame()
         self._build_settings_frame()
         self._build_donate_frame()
+        self._build_extlog_frame()
+        self._extlog_after = None
+        self._extlog_pos   = 0
         self._show_frame(self.main_frame)
 
     # ── Window setup ──────────────────────────────────────────────────────────
@@ -305,8 +369,12 @@ class ABTFarmerApp(tk.Tk):
 
     # ── Frame switcher ────────────────────────────────────────────────────────
     def _show_frame(self, frame: tk.Frame):
-        for f in (self.main_frame, self.settings_frame, self.donate_frame):
+        for f in (self.main_frame, self.settings_frame, self.donate_frame, self.extlog_frame):
             f.place_forget()
+        if frame is self.extlog_frame:
+            self._start_extlog_tail()
+        else:
+            self._stop_extlog_tail()
         frame.place(x=0, y=0, relwidth=1, relheight=1)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -360,7 +428,7 @@ class ABTFarmerApp(tk.Tk):
         inp_frame = tk.Frame(f, bg=BG)
         inp_frame.pack(fill="x", padx=24, pady=(18, 0))
 
-        self.inp_label_var = tk.StringVar(value="Gems to farm:")
+        self.inp_label_var = tk.StringVar(value="Gems to farm:  (minimum 25)")
         tk.Label(inp_frame, textvariable=self.inp_label_var,
                  font=F_BOLD, bg=BG, fg=TEXT).pack(anchor="w")
 
@@ -416,6 +484,10 @@ class ABTFarmerApp(tk.Tk):
         make_btn(bottom, "⚙  Settings", self._open_settings,
                  bg=SURFACE, fg=SUBTEXT, font=F_LABEL,
                  pady=4, padx=14).pack(side="left", padx=8, pady=8)
+
+        make_btn(bottom, "📋  Extended Log", self._open_extlog,
+                 bg=SURFACE, fg=SUBTEXT, font=F_LABEL,
+                 pady=4, padx=14).pack(side="left", padx=0, pady=8)
 
         make_btn(bottom, "❤  Donate", self._open_donate,
                  bg=SURFACE, fg=SUBTEXT, font=F_LABEL,
@@ -602,6 +674,137 @@ class ABTFarmerApp(tk.Tk):
         self.after(2000, lambda: self.settings_saved_label.config(text=""))
 
     # ─────────────────────────────────────────────────────────────────────────
+    # EXTENDED LOG FRAME
+    # ─────────────────────────────────────────────────────────────────────────
+    def _build_extlog_frame(self):
+        f = tk.Frame(self, bg=BG)
+        self.extlog_frame = f
+
+        # ── Header ────────────────────────────────────────────────────────
+        hdr = tk.Frame(f, bg=SURFACE, height=64)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+
+        make_btn(hdr, "←", lambda: self._show_frame(self.main_frame),
+                 bg=SURFACE, fg=SUBTEXT, font=("Segoe UI", 14),
+                 pady=4, padx=16).pack(side="left", padx=4, pady=12)
+
+        tk.Label(hdr, text="Extended Log", font=F_TITLE,
+                 bg=SURFACE, fg=TEXT).pack(side="left", pady=16)
+
+        make_btn(hdr, "🗑  Clear", self._clear_extlog,
+                 bg=SURFACE, fg=SUBTEXT, font=F_SMALL,
+                 pady=4, padx=10).pack(side="right", padx=12, pady=16)
+
+        # ── Log area (same style as Activity Log) ─────────────────────────
+        log_outer = tk.Frame(f, bg=SURFACE, bd=0)
+        log_outer.pack(fill="both", expand=True, padx=24, pady=(14, 8))
+
+        log_hdr = tk.Frame(log_outer, bg=SURFACE)
+        log_hdr.pack(fill="x", padx=10, pady=(8, 0))
+        tk.Label(log_hdr, text=f"▸ {LOG_FILE}", font=F_LABEL,
+                 bg=SURFACE, fg=SUBTEXT).pack(side="left")
+
+        scrollbar = tk.Scrollbar(log_outer, bg=SURFACE, troughcolor=SURFACE)
+        scrollbar.pack(side="right", fill="y", padx=(0, 4), pady=(0, 4))
+
+        self.extlog_text = tk.Text(
+            log_outer,
+            bg=LOG_BG, fg=LOG_FG,
+            font=F_MONO,
+            relief="flat", bd=0,
+            state="disabled",
+            yscrollcommand=scrollbar.set,
+            wrap="word",
+            padx=10, pady=6,
+            cursor="arrow",
+        )
+        self.extlog_text.pack(fill="both", expand=True, padx=(4, 0), pady=(0, 4))
+        scrollbar.config(command=self.extlog_text.yview)
+
+        self.extlog_text.tag_config("info",    foreground=LOG_FG)
+        self.extlog_text.tag_config("success", foreground=SUCCESS)
+        self.extlog_text.tag_config("warning", foreground=WARNING)
+        self.extlog_text.tag_config("error",   foreground=ERR)
+        self.extlog_text.tag_config("stop",    foreground=STOP_RED)
+        self.extlog_text.tag_config("dim",     foreground=SUBTEXT)
+        self.extlog_text.tag_config("header",  foreground=ACCENT)
+
+    def _open_extlog(self):
+        self._show_frame(self.extlog_frame)
+
+    def _extlog_tag(self, line: str) -> str:
+        if "[ERROR]" in line or "Error" in line:
+            return "error"
+        if "[SUCCESS]" in line or "[FIX]" in line or "[+]" in line:
+            return "success"
+        if "[STOP]" in line:
+            return "stop"
+        if "[WARNING]" in line or "[!]" in line:
+            return "warning"
+        if "==" in line or "──" in line:
+            return "header"
+        if "[INFO]" in line:
+            return "dim"
+        return "info"
+
+    def _load_extlog_full(self):
+        self.extlog_text.config(state="normal")
+        self.extlog_text.delete("1.0", "end")
+        self._extlog_pos = 0
+        if os.path.exists(LOG_FILE):
+            try:
+                with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as fh:
+                    content = fh.read()
+                    self._extlog_pos = fh.tell()
+                for line in content.splitlines(keepends=True):
+                    self.extlog_text.insert("end", line, self._extlog_tag(line))
+                self.extlog_text.see("end")
+            except Exception:
+                pass
+        else:
+            self.extlog_text.insert("end",
+                "No farm_log.txt found yet.\nStart a farm session to generate logs.\n",
+                "dim")
+        self.extlog_text.config(state="disabled")
+
+    def _start_extlog_tail(self):
+        self._load_extlog_full()
+        self._tail_extlog()
+
+    def _tail_extlog(self):
+        if os.path.exists(LOG_FILE):
+            try:
+                with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as fh:
+                    fh.seek(self._extlog_pos)
+                    new_data = fh.read()
+                    self._extlog_pos = fh.tell()
+                if new_data:
+                    self.extlog_text.config(state="normal")
+                    for line in new_data.splitlines(keepends=True):
+                        self.extlog_text.insert("end", line, self._extlog_tag(line))
+                    self.extlog_text.see("end")
+                    self.extlog_text.config(state="disabled")
+            except Exception:
+                pass
+        self._extlog_after = self.after(500, self._tail_extlog)
+
+    def _stop_extlog_tail(self):
+        if self._extlog_after is not None:
+            self.after_cancel(self._extlog_after)
+            self._extlog_after = None
+
+    def _clear_extlog(self):
+        self.extlog_text.config(state="normal")
+        self.extlog_text.delete("1.0", "end")
+        self.extlog_text.config(state="disabled")
+        try:
+            open(LOG_FILE, "w").close()
+            self._extlog_pos = 0
+        except Exception:
+            pass
+
+    # ─────────────────────────────────────────────────────────────────────────
     # DONATE FRAME
     # ─────────────────────────────────────────────────────────────────────────
     def _build_donate_frame(self):
@@ -678,7 +881,7 @@ class ABTFarmerApp(tk.Tk):
     def _on_mode_change(self):
         mode = self.mode_var.get()
         if mode == 1:
-            self.inp_label_var.set("Gems to farm:")
+            self.inp_label_var.set("Gems to farm:  (minimum 25)")
             if self.amount_entry.get() in ("15", ""):
                 self.amount_entry.delete(0, "end")
                 self.amount_entry.insert(0, "100")
@@ -718,8 +921,10 @@ class ABTFarmerApp(tk.Tk):
             self.val_label.config(text="⚠  Please enter a valid number.", fg=WARNING)
             return
 
-        if mode == 1 and amount <= 0:
-            self.val_label.config(text="⚠  Enter a positive number of gems.", fg=WARNING)
+        if mode == 1 and amount < 25:
+            self.val_label.config(text="⚠  Gems mode requires at least 25 gems.\n"
+                                       "   The Time Fix needs a minimum of 5 skips to work correctly.",
+                                  fg=WARNING)
             return
 
         if mode == 2 and amount < 15:
@@ -735,7 +940,7 @@ class ABTFarmerApp(tk.Tk):
     def _start_farming(self, mode: int, amount: int):
         self.farming = True
         self.stop_event.clear()
-        self._stop_btn_active = (mode == 1)  # mode 2 starts dimmed
+        self._stop_btn_active = False  # both modes start dimmed
 
         # Clear log
         self.log_text.config(state="normal")
@@ -753,7 +958,8 @@ class ABTFarmerApp(tk.Tk):
             self.stop_hint.config(
                 text="Stop will unlock after cycle 14", fg=SUBTEXT)
         else:
-            self.stop_hint.config(text="")
+            self.stop_hint.config(
+                text="Stop will unlock after cycle 5", fg=SUBTEXT)
 
         # Disable mode/input controls
         self.rb_gems.config(state="disabled")
