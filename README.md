@@ -197,6 +197,10 @@ On connect, the driver immediately disables Android's `auto_time` global setting
 
 Uses native Android intents (`am start -S -W -n`) to wake the game directly, bypassing suspended tab issues.
 
+### Countdown Timer:
+
+Displays the estimated time remaining next to the amount input field. Updates live every second while farming is active.
+
 ### Interruptible Sleep
 
 All wait periods inside the farming loop are split into 1-second intervals. Once Stop is unlocked, each wait checks the stop flag every second, so the script reacts to a stop request immediately rather than waiting out a full delay.
