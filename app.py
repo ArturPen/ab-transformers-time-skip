@@ -1,10 +1,3 @@
-"""
-ArturPen's ABT Farmer — GUI v2.0.0
-Replaces main.py. Run this file to launch the graphical interface.
-Requires: driver.py and ADB files (adb.exe, AdbWinApi.dll, AdbWinUsbApi.dll)
-          in the same folder.
-"""
-
 import tkinter as tk
 from tkinter import font as tkfont
 import threading
