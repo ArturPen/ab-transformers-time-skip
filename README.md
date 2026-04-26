@@ -35,7 +35,7 @@ If this tool saved you time and gems, feel free to support the project!
 
 ## 🖥️ GUI Overview
 
-`main.py` has been replaced by `app.py`, which launches a dark-themed desktop window (`ABTFarmerApp`) built with Python's built-in `tkinter` library. No additional libraries need to be installed.
+ `app.py` launches a dark-themed desktop window (`ABTFarmerApp`) built with Python's built-in `tkinter` library. No additional libraries need to be installed.
 
 The interface is organized into four screens navigated via buttons in the bottom bar and headers:
 
