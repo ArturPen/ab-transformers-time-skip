@@ -102,6 +102,20 @@ class GameDriver:
         logging.info("[FIX] Reverting time to yesterday 23:59...")
         self.set_device_time(real_yesterday)
 
+    def is_game_foreground(self) -> bool:
+        """
+        Returns True if the game's Activity is currently in the foreground.
+        Returns False if the game is frozen (ANR dialog) or pushed to background
+        by a system dialog.
+        """
+        output = self.run_cmd("shell dumpsys activity activities")
+        for line in output.splitlines():
+            if "mResumedActivity" in line or "ResumedActivity" in line:
+                return self.package_name in line
+        # Fallback: check focused window
+        focused = self.run_cmd("shell dumpsys window windows | grep mCurrentFocus")
+        return self.package_name in focused
+
     def stop_game(self):
         """Force-stops the game and clears it from background memory."""
         self.run_cmd(f"shell am force-stop {self.package_name}")

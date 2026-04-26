@@ -16,7 +16,7 @@ from driver import GameDriver
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 APP_TITLE   = f"ArturPen's ABT Farmer  v{APP_VERSION}"
 CONFIG_FILE = "config.json"
 LOG_FILE    = "farm_log.txt"
@@ -249,6 +249,14 @@ def farming_worker(mode: int, amount: int, cfg: dict,
             stopped_early = True
             break
 
+        # Step 2b: freeze check
+        if not driver.is_game_foreground():
+            logall("[ERROR] Game freeze detected — activity is no longer in foreground.")
+            logall("[ERROR] The game may have crashed or an ANR dialog appeared.")
+            vlog("[ERROR] Stopping farming loop. Manual intervention required.")
+            ctrl_q.put("ERROR:Game froze or crashed during cycle. Check the emulator screen.")
+            return
+
         # Step 3: tap claim button
         driver.click(BTN_X, BTN_Y)
 
@@ -257,6 +265,14 @@ def farming_worker(mode: int, amount: int, cfg: dict,
         if interrupted:
             stopped_early = True
             break
+
+        # Step 4b: freeze check
+        if not driver.is_game_foreground():
+            logall("[ERROR] Game freeze detected — activity is no longer in foreground.")
+            logall("[ERROR] The game may have crashed or an ANR dialog appeared.")
+            vlog("[ERROR] Stopping farming loop. Manual intervention required.")
+            ctrl_q.put("ERROR:Game froze or crashed during cycle. Check the emulator screen.")
+            return
 
         # After cycle 5 in mode 1: unlock stop
         if mode == 1 and cycle == 5:
