@@ -23,7 +23,7 @@ from driver import GameDriver
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
-APP_VERSION = "2.0.1"
+APP_VERSION = "2.1.0"
 APP_TITLE   = f"ArturPen's ABT Farmer  v{APP_VERSION}"
 CONFIG_FILE = "config.json"
 LOG_FILE    = "farm_log.txt"
@@ -352,6 +352,8 @@ class ABTFarmerApp(tk.Tk):
         self._build_extlog_frame()
         self._extlog_after = None
         self._extlog_pos   = 0
+        self._countdown_after = None
+        self._countdown_end   = 0
         self._show_frame(self.main_frame)
 
     # ── Window setup ──────────────────────────────────────────────────────────
@@ -444,6 +446,13 @@ class ABTFarmerApp(tk.Tk):
         )
         self.amount_entry.pack(side="left", ipady=8, ipadx=8)
         self.amount_entry.insert(0, "25")
+
+        self.countdown_label = tk.Label(
+            entry_row, text="",
+            font=("Segoe UI", 11, "bold"),
+            bg=BG, fg=ACCENT,
+        )
+        self.countdown_label.pack(side="left", padx=(16, 0))
 
         # Validation message (hidden until needed)
         self.val_label = tk.Label(
@@ -977,6 +986,10 @@ class ABTFarmerApp(tk.Tk):
         self._total_cycles = math.ceil(amount / 5) if mode == 1 else amount
         self._done_cycles   = 0
         self._current_mode  = mode
+        # Start countdown
+        total_sec = self._total_cycles * 8
+        self._countdown_end = time.time() + total_sec
+        self._tick_countdown()
         self._poll_queues()
 
     def _on_stop(self):
@@ -1006,6 +1019,12 @@ class ABTFarmerApp(tk.Tk):
         self.farming = False
         self._stop_btn_active = False
 
+        # Stop countdown
+        if self._countdown_after is not None:
+            self.after_cancel(self._countdown_after)
+            self._countdown_after = None
+        self.countdown_label.config(text="")
+
         self.action_btn.config(
             text="▶   START",
             command=self._on_start,
@@ -1018,6 +1037,24 @@ class ABTFarmerApp(tk.Tk):
         self.rb_gems.config(state="normal")
         self.rb_res.config(state="normal")
         self.amount_entry.config(state="normal")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Countdown timer — updates every second while farming
+    # ─────────────────────────────────────────────────────────────────────────
+    def _tick_countdown(self):
+        if not self.farming:
+            return
+        remaining = max(0, int(self._countdown_end - time.time()))
+        h, rem = divmod(remaining, 3600)
+        m, s   = divmod(rem, 60)
+        if h:
+            text = f"⏱ {h}h {m:02d}m {s:02d}s"
+        elif m:
+            text = f"⏱ {m}m {s:02d}s"
+        else:
+            text = f"⏱ {s}s"
+        self.countdown_label.config(text=text)
+        self._countdown_after = self.after(1000, self._tick_countdown)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Queue polling — runs on main thread every 80ms while farming
