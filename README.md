@@ -56,6 +56,13 @@ The interface is organized into four screens navigated via buttons in the bottom
 
 **Donate Screen** — crypto wallet addresses with one-click copy buttons, and a GitHub star link.
 
+<table style="border: none;">
+  <tr>
+    <td style="border: none;"><img src="https://github.com/user-attachments/assets/1b3d36ab-4830-497b-a352-819b047bd4b1" width="400"></td>
+    <td style="border: none;"><img src="https://github.com/user-attachments/assets/94b2a2df-2558-4866-b472-96f6856750b6" width="400"></td>
+  </tr>
+</table>
+
 ---
 
 ## ⚙️ How It Works (Code Analysis)
@@ -205,6 +212,10 @@ Displays the estimated time remaining next to the amount input field. Updates li
 
 All wait periods inside the farming loop are split into 1-second intervals. Once Stop is unlocked, each wait checks the stop flag every second, so the script reacts to a stop request immediately rather than waiting out a full delay.
 
+### Smart Crash & Background Detection
+
+The program monitors the game process in real-time. If the game crashes or is minimized, the farmer will automatically stop to prevent accidental clicks on your desktop or emulator home screen. Information about the crash will go to logs.
+
 ---
 
 ## 📝 Logging Reference
@@ -219,6 +230,7 @@ All messages follow the format `HH:MM:SS [LEVEL] message`. Key entries:
 | `[FIX] Reverting time to yesterday 23:59` | Time Fix started |
 | `[SUCCESS] Game launched successfully` | Game is running |
 | `[STOP] Program was stopped via the 'stop' command.` | Manual stop recorded |
+| `[ERROR] Game freeze detected — activity is no longer in foreground.` | Game crash detected |
 
 ---
 
